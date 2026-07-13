@@ -758,12 +758,12 @@ canvas.addEventListener('pointerdown', (e)=>{
 window.addEventListener('pointerup', (e)=>{
   isDragging=false;
   canvas.style.cursor = hoveredMesh ? 'pointer' : 'grab';
-  // a tap (little movement, short duration) should still show the tooltip,
-  // since a stationary touch never fires pointermove on iOS
+  // belt-and-suspenders tap detection alongside the click listener below —
+  // generous thresholds since real taps always carry a few px of finger jitter
   const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
   const duration = performance.now() - downTime;
-  if(moved < 8 && duration < 500){
-    updateHover(e.clientX, e.clientY, e.pointerType);
+  if(moved < 18 && duration < 700){
+    updateHover(e.clientX, e.clientY, 'touch');
   }
 });
 window.addEventListener('pointermove', (e)=>{
@@ -782,6 +782,14 @@ window.addEventListener('pointermove', (e)=>{
   updateHover(e.clientX, e.clientY, e.pointerType);
 });
 canvas.addEventListener('pointerleave', ()=>{ setHover(null, 0, 0); });
+
+// primary tap-detection for touch: the browser's own 'click' event already
+// correctly distinguishes a genuine tap from a drag (it's suppressed after
+// real movement), which is more reliable than manually timing pointer events
+canvas.addEventListener('click', (e)=>{
+  updateHover(e.clientX, e.clientY, 'touch');
+});
+
 canvas.addEventListener('wheel', (e)=>{
   e.preventDefault();
   camera.position.z += e.deltaY * 0.003;
