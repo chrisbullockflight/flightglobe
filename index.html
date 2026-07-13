@@ -572,8 +572,7 @@ function latLonToVec3(lat, lon, radius){
 
 // airport markers
 const homeCode = DATA.home_base;
-const airportMeshes = []; // hoverable meshes (marker + invisible hit-sphere)
-const visibleMarkers = []; // just the colored marker spheres, for hover-scale animation
+const visibleMarkers = []; // marker spheres — used for both picking and hover-scale animation
 
 // how many distinct routes touch each airport, for the tooltip
 const routeCountByAirport = {};
@@ -592,23 +591,11 @@ DATA.airports.forEach(ap=>{
   marker.position.copy(pos);
   globeGroup.add(marker);
 
-  const info = {
+  marker.userData = {
     code: ap.code, city: ap.city, country: ap.country,
     visits: ap.visits, isHome, routes: routeCountByAirport[ap.code]||0
   };
-  marker.userData = info;
   marker.userData.markerMesh = marker;
-
-  // generous invisible hit-sphere so small markers are easy to hover/tap
-  const hitGeo = new THREE.SphereGeometry(Math.max(size*3.2, 0.05), 8, 8);
-  const hitMat = new THREE.MeshBasicMaterial({ visible:false });
-  const hitSphere = new THREE.Mesh(hitGeo, hitMat);
-  hitSphere.position.copy(pos);
-  hitSphere.userData = info;
-  hitSphere.userData.markerMesh = marker;
-  globeGroup.add(hitSphere);
-
-  airportMeshes.push(marker, hitSphere);
   visibleMarkers.push(marker);
 
   if(isHome){
@@ -694,8 +681,6 @@ let prevX=0, prevY=0;
 let rotVelX=0, rotVelY=0;
 let autoRotate = true;
 
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
 const tooltip = document.getElementById('tooltip');
 let hoveredMesh = null;
 
@@ -731,17 +716,36 @@ function positionTooltip(clientX, clientY){
   tooltip.style.top = (clientY - rect.top) + 'px';
 }
 
-function updateHover(clientX, clientY){
+// finds the nearest airport marker to a screen point, within a forgiving
+// pixel radius — a fingertip is nowhere near as precise as a mouse cursor,
+// so exact 3D raycasting against a tiny sphere misses touch taps constantly.
+// Markers on the far side of the globe are excluded via a simple backface check.
+const _markerWorldPos = new THREE.Vector3();
+function worldToScreen(worldPos){
+  const p = worldPos.clone().project(camera);
   const rect = canvas.getBoundingClientRect();
-  mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObjects(airportMeshes, false);
-  if(hits.length){
-    setHover(hits[0].object, clientX, clientY);
-  } else {
-    setHover(null, clientX, clientY);
+  return {
+    x: rect.left + (p.x*0.5+0.5)*rect.width,
+    y: rect.top + (-(p.y*0.5)+0.5)*rect.height
+  };
+}
+function pickAirport(clientX, clientY, radiusPx){
+  const camDir = camera.position.clone().normalize();
+  let best = null, bestDist = Infinity;
+  for(const m of visibleMarkers){
+    m.getWorldPosition(_markerWorldPos);
+    const facing = _markerWorldPos.clone().normalize().dot(camDir);
+    if(facing < 0.05) continue; // on the far side of the globe — skip
+    const s = worldToScreen(_markerWorldPos);
+    const dist = Math.hypot(s.x - clientX, s.y - clientY);
+    if(dist < bestDist){ bestDist = dist; best = m; }
   }
+  return (best && bestDist <= radiusPx) ? best : null;
+}
+
+function updateHover(clientX, clientY, pointerType){
+  const radius = pointerType === 'touch' ? 34 : 16; // fingertip vs cursor precision
+  setHover(pickAirport(clientX, clientY, radius), clientX, clientY);
 }
 
 let downX=0, downY=0, downTime=0;
@@ -759,7 +763,7 @@ window.addEventListener('pointerup', (e)=>{
   const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
   const duration = performance.now() - downTime;
   if(moved < 8 && duration < 500){
-    updateHover(e.clientX, e.clientY);
+    updateHover(e.clientX, e.clientY, e.pointerType);
   }
 });
 window.addEventListener('pointermove', (e)=>{
@@ -775,7 +779,7 @@ window.addEventListener('pointermove', (e)=>{
     setHover(null, e.clientX, e.clientY);
     return;
   }
-  updateHover(e.clientX, e.clientY);
+  updateHover(e.clientX, e.clientY, e.pointerType);
 });
 canvas.addEventListener('pointerleave', ()=>{ setHover(null, 0, 0); });
 canvas.addEventListener('wheel', (e)=>{
