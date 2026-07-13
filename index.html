@@ -182,10 +182,44 @@
   }
 
   @media (max-width: 820px){
-    .panel{ min-width:104px; padding:8px 10px; }
-    .panel .value{ font-size:17px; }
-    .panel .label{ font-size:8.5px; }
-    #destPanel{ display:none; }
+    #topbar{
+      flex-wrap:wrap; row-gap:8px;
+      padding:10px 14px 10px;
+    }
+    #topbar .callsign{ flex:1 1 100%; font-size:9.5px; letter-spacing:1.5px; }
+    #topbar > div:last-child{ flex:1 1 100%; justify-content:flex-start; gap:8px; }
+    #modeToggle, .badge{ font-size:8.5px; padding:3px 8px; }
+
+    /* On phones, abandon the floating-panel layout entirely — the desktop
+       positions assume a wide aspect ratio and collide on a tall portrait
+       screen. Instead: one swipeable strip of compact stat chips pinned
+       below the (now two-row) top bar, fully clear of the globe so routes
+       stay legible. */
+    #hudPanels{
+      position:absolute; top:82px; left:0; right:0; z-index:7;
+      display:flex; gap:8px; overflow-x:auto;
+      padding:2px 12px 8px;
+      -webkit-overflow-scrolling:touch;
+      scrollbar-width:none;
+      pointer-events:auto;
+      mask-image: linear-gradient(90deg, transparent, black 16px, black calc(100% - 16px), transparent);
+    }
+    #hudPanels::-webkit-scrollbar{ display:none; }
+
+    .panel{
+      position:static !important; inset:auto !important;
+      flex:0 0 auto; min-width:118px; padding:7px 11px;
+      animation:none !important; /* drift animation fights a horizontal strip */
+    }
+    .panel .value{ font-size:16px; }
+    .panel .label{ font-size:8px; }
+    .panel .sub{ font-size:8.5px; }
+
+    #destPanel{ display:none !important; } /* keep the phone strip to headline stats only */
+
+    #hint{ display:none; } /* screen's tight; tapping a city already teaches the gesture */
+    #botbar{ padding:8px 12px; }
+    #botbar .callsign{ font-size:7.5px; letter-spacing:0.6px; white-space:nowrap; }
   }
 </style>
 </head>
@@ -217,18 +251,20 @@
   <div id="tooltip"></div>
 
   <!-- floating stat panels, positioned in CSS -->
-  <!-- LEFT COLUMN -->
-  <div class="panel" id="p-hours" style="top:14%; left:4%; animation-delay:0s;"></div>
-  <div class="panel" id="p-legs" style="top:28%; left:4%; animation-delay:0.8s;"></div>
-  <div class="panel" id="destPanel" style="top:42%; left:4%; display:none;"></div>
-  <div class="panel" id="p-airports" style="top:66%; left:4%; animation-delay:1.6s;"></div>
+  <div id="hudPanels">
+    <!-- LEFT COLUMN (desktop) -->
+    <div class="panel" id="p-hours" style="top:14%; left:4%; animation-delay:0s;"></div>
+    <div class="panel" id="p-legs" style="top:28%; left:4%; animation-delay:0.8s;"></div>
+    <div class="panel" id="destPanel" style="top:42%; left:4%; display:none;"></div>
+    <div class="panel" id="p-airports" style="top:66%; left:4%; animation-delay:1.6s;"></div>
 
-  <!-- RIGHT COLUMN -->
-  <div class="panel" id="p-moon" style="top:14%; right:4%; animation-delay:1.9s;"></div>
-  <div class="panel" id="p-countries" style="top:28%; right:4%; animation-delay:0.4s;"></div>
-  <div class="panel" id="p-distance" style="top:42%; right:4%; animation-delay:2s;"></div>
-  <div class="panel" id="p-longest" style="top:56%; right:4%; animation-delay:1.2s;"></div>
-  <div class="panel" id="p-aircraft" style="top:70%; right:4%; animation-delay:0.6s;"></div>
+    <!-- RIGHT COLUMN (desktop) -->
+    <div class="panel" id="p-moon" style="top:14%; right:4%; animation-delay:1.9s;"></div>
+    <div class="panel" id="p-countries" style="top:28%; right:4%; animation-delay:0.4s;"></div>
+    <div class="panel" id="p-distance" style="top:42%; right:4%; animation-delay:2s;"></div>
+    <div class="panel" id="p-longest" style="top:56%; right:4%; animation-delay:1.2s;"></div>
+    <div class="panel" id="p-aircraft" style="top:70%; right:4%; animation-delay:0.6s;"></div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -616,14 +652,21 @@ DATA.routes.forEach(r=>{
   if(!A || !B) return;
   const pts = greatCircleArc(A.lat, A.lon, B.lat, B.lon);
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  const opacity = 0.12 + (r.count/maxCount)*0.55;
   const isHomeRoute = (r.a===homeCode || r.b===homeCode);
+  // amber flight-path color reads clearly against both the cyan HUD/graticule
+  // and the earth textures; frequency still modulates brightness/opacity
+  const weight = r.count/maxCount;
+  const opacity = (isHomeRoute ? 0.45 : 0.32) + weight*0.5;
   const mat = new THREE.LineBasicMaterial({
-    color: isHomeRoute ? 0x4fd8e8 : 0x6ee7a0,
+    color: isHomeRoute ? 0xffc766 : 0xff9d4d,
     transparent:true,
-    opacity: opacity
+    opacity: Math.min(opacity, 0.95),
+    blending: THREE.AdditiveBlending,
+    depthWrite:false
   });
-  globeGroup.add(new THREE.Line(geo, mat));
+  const line = new THREE.Line(geo, mat);
+  line.renderOrder = 2; // draw after the globe/clouds so the glow reads cleanly
+  globeGroup.add(line);
 });
 
 // starfield background
